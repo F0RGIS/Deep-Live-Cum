@@ -1,0 +1,41 @@
+{
+  "name": "deep-live-cum",
+  "version": "2.1.6",
+  "description": "Deep-Live-Cam packaged as Electron Windows app",
+  "main": "main.js",
+  "author": "F0RGIS",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.f0rgis.deeplivecum",
+    "productName": "Deep-Live-Cum",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/DeepLiveCum",
+        "to": "python-app"
+      }
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.0"
+  }
+}
