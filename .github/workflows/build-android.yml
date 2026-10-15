@@ -20,12 +20,27 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install tools
+      - name: Install JDK and tools
         run: |
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk unzip wget curl
           pip install --upgrade pip
           pip install pyside6 buildozer cython
+
+      - name: Install Android SDK + NDK
+        run: |
+          set -e
+          SDK_ROOT="$HOME/android-sdk"
+          mkdir -p "$SDK_ROOT/cmdline-tools"
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools"
+          mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" \
+            "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
 
       - name: Download essential models
         run: |
@@ -47,28 +62,40 @@ jobs:
           wget -O wheels/shiboken.whl \
             "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.8.3-6.8.3-cp311-cp311-android_aarch64.whl"
           ls -lh wheels/
+          file wheels/pyside.whl
 
-      - name: Build APK with pyside6-android-deploy
+      - name: Build APK
         run: |
-          if [ -s wheels/pyside.whl ] && [ -s wheels/shiboken.whl ]; then
-            pyside6-android-deploy \
-              --name DeepLiveCum \
-              --wheel-pyside=wheels/pyside.whl \
-              --wheel-shiboken=wheels/shiboken.whl \
-              --keep-deployment-files || echo "Deploy finished with warnings"
-          else
-            echo "::warning::PySide6 Android wheels not available."
+          set -e
+          if [ ! -s wheels/pyside.whl ] || [ ! -s wheels/shiboken.whl ]; then
+            echo "Wheels missing"
             exit 1
           fi
+          pyside6-android-deploy \
+            --name DeepLiveCum \
+            --wheel-pyside="$(pwd)/wheels/pyside.whl" \
+            --wheel-shiboken="$(pwd)/wheels/shiboken.whl" \
+            --ndk-path="$ANDROID_NDK_ROOT" \
+            --sdk-path="$ANDROID_SDK_ROOT" \
+            --keep-deployment-files
+          # Fail if no APK was produced
+          find . -name "*.apk" -print
+          test -n "$(find . -name '*.apk' -print -quit)" || (echo "No APK produced" && exit 1)
 
-      - name: Upload APK and models
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepLiveCum-Android-APK
+          path: |
+            **/*.apk
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload models (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: DeepLiveCum-Android
-          path: |
-            **/*.apk
-            models/
-            **/buildozer.spec
-          retention-days: 14
+          name: models
+          path: models/
+          retention-days: 7
           if-no-files-found: ignore
