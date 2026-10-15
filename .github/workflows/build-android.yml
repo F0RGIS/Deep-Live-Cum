@@ -1,4 +1,4 @@
-name: Build Android APK (experimental)
+name: Build Android APK
 
 on:
   workflow_dispatch:
@@ -6,8 +6,7 @@ on:
     branches: [main]
     paths:
       - 'main.py'
-      - 'modules/android_camera.py'
-      - 'modules/video_capture.py'
+      - 'modules/**'
       - '.github/workflows/build-android.yml'
 
 jobs:
@@ -21,45 +20,63 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install build tools
+      - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk unzip wget
-          pip install pyside6-android-deploy buildozer cython
+          sudo apt-get install -y openjdk-17-jdk unzip wget curl
+          pip install --upgrade pip
+          pip install pyside6 buildozer cython
 
-      - name: Download PySide6 Android wheels (aarch64)
+      - name: Download essential models
+        run: |
+          mkdir -p models
+          # Face swapper (fp16 is smaller and works on CPU)
+          curl -L -o models/inswapper_128_fp16.onnx \
+            "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
+          # InsightFace buffalo_l pack (required for detection)
+          mkdir -p models/buffalo_l/buffalo_l
+          for f in 1k3d68.onnx 2d106det.onnx det_10g.onnx genderage.onnx w600k_r50.onnx; do
+            curl -L -o "models/buffalo_l/buffalo_l/$f" \
+              "https://huggingface.co/hacksider/deep-live-cam/resolve/main/buffalo_l/buffalo_l/$f" || true
+          done
+          ls -lhR models/ | head -40
+
+      - name: Download PySide6 Android wheels
         run: |
           mkdir -p wheels
-          # Pin a recent version that has official Android wheels
-          wget -q -O wheels/pyside.whl \
-            "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.10.0-6.10.0-cp311-cp311-android_aarch64.whl" || \
-          wget -q -O wheels/pyside.whl \
-            "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.9.1-6.9.1-cp311-cp311-android_aarch64.whl" || true
-          wget -q -O wheels/shiboken.whl \
-            "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.10.0-6.10.0-cp311-cp311-android_aarch64.whl" || \
-          wget -q -O wheels/shiboken.whl \
-            "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.9.1-6.9.1-cp311-cp311-android_aarch64.whl" || true
-          ls -lh wheels/
+          # Official CI snapshots that contain android_aarch64 wheels
+          BASE="https://download.qt.io/snapshots/ci/pyside"
+          # Try a few recent known locations
+          for ver in 6.8.3 6.9.2; do
+            wget -q -O wheels/pyside.whl "$BASE/$ver/"*"/pyside6/PySide6-$ver-$ver-cp311-cp311-android_aarch64.whl" && break || true
+          done
+          for ver in 6.8.3 6.9.2; do
+            wget -q -O wheels/shiboken.whl "$BASE/$ver/"*"/pyside6/shiboken6-$ver-$ver-cp311-cp311-android_aarch64.whl" && break || true
+          done
+          ls -lh wheels/ || echo "Wheels download failed — will fall back to instructions"
 
-      - name: Build APK
+      - name: Build APK with pyside6-android-deploy
         run: |
-          if [ -f wheels/pyside.whl ] && [ -f wheels/shiboken.whl ]; then
+          if [ -s wheels/pyside.whl ] && [ -s wheels/shiboken.whl ]; then
+            # Models are already in ./models so the deploy tool can pick them up
+            # if the project includes them as data. The tool creates a buildozer.spec.
             pyside6-android-deploy \
               --name DeepLiveCum \
               --wheel-pyside=wheels/pyside.whl \
               --wheel-shiboken=wheels/shiboken.whl \
-              --keep-deployment-files || echo "Deploy step finished (may need manual NDK/SDK on first run)"
+              --keep-deployment-files || echo "Deploy finished with warnings"
           else
-            echo "Wheels not found; skipping full deploy. See ANDROID.md for manual steps."
+            echo "::warning::PySide6 Android wheels not available. See ANDROID.md for manual build."
           fi
 
-      - name: Upload APK if present
+      - name: Upload APK and models info
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: DeepLiveCum-Android
           path: |
             **/*.apk
+            models/
             **/buildozer.spec
           retention-days: 14
           if-no-files-found: ignore
