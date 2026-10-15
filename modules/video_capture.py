@@ -3,11 +3,16 @@ import numpy as np
 import time
 from typing import Optional, Tuple, Callable
 import platform
+import sys
 import threading
 
 # Only import Windows-specific library if on Windows
 if platform.system() == "Windows":
     from pygrabber.dshow_graph import FilterGraph
+
+
+def _is_android() -> bool:
+    return sys.platform == "android" or "android" in sys.platform.lower()
 
 
 class VideoCapturer:
@@ -36,7 +41,16 @@ class VideoCapturer:
     def start(self, width: int = 960, height: int = 540, fps: int = 60) -> bool:
         """Initialize and start video capture"""
         try:
-            if platform.system() == "Windows":
+            if _is_android():
+                # Request permission first (no-op if already granted or not packaged)
+                try:
+                    from modules.android_camera import request_camera_permission
+                    request_camera_permission()
+                except Exception:
+                    pass
+                # OpenCV on Android typically uses the default camera via index 0
+                self.cap = cv2.VideoCapture(self.device_index)
+            elif platform.system() == "Windows":
                 # device_index comes from pygrabber.FilterGraph (DirectShow
                 # enumeration), so open with DSHOW first to preserve mapping.
                 # MSMF and DirectShow enumerate cameras in different orders, so
@@ -82,7 +96,7 @@ class VideoCapturer:
             # Belt-and-braces: also set via cap.set() for backends that honor
             # post-open changes (MSMF, V4L2). DSHOW ignores these, but the
             # construction params above already handled it.
-            if platform.system() != "Windows":
+            if platform.system() != "Windows" and not _is_android():
                 self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
