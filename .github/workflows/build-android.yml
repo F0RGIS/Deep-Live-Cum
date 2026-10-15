@@ -1,0 +1,65 @@
+name: Build Android APK (experimental)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main.py'
+      - 'modules/android_camera.py'
+      - 'modules/video_capture.py'
+      - '.github/workflows/build-android.yml'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk unzip wget
+          pip install pyside6-android-deploy buildozer cython
+
+      - name: Download PySide6 Android wheels (aarch64)
+        run: |
+          mkdir -p wheels
+          # Pin a recent version that has official Android wheels
+          wget -q -O wheels/pyside.whl \
+            "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.10.0-6.10.0-cp311-cp311-android_aarch64.whl" || \
+          wget -q -O wheels/pyside.whl \
+            "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.9.1-6.9.1-cp311-cp311-android_aarch64.whl" || true
+          wget -q -O wheels/shiboken.whl \
+            "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.10.0-6.10.0-cp311-cp311-android_aarch64.whl" || \
+          wget -q -O wheels/shiboken.whl \
+            "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.9.1-6.9.1-cp311-cp311-android_aarch64.whl" || true
+          ls -lh wheels/
+
+      - name: Build APK
+        run: |
+          if [ -f wheels/pyside.whl ] && [ -f wheels/shiboken.whl ]; then
+            pyside6-android-deploy \
+              --name DeepLiveCum \
+              --wheel-pyside=wheels/pyside.whl \
+              --wheel-shiboken=wheels/shiboken.whl \
+              --keep-deployment-files || echo "Deploy step finished (may need manual NDK/SDK on first run)"
+          else
+            echo "Wheels not found; skipping full deploy. See ANDROID.md for manual steps."
+          fi
+
+      - name: Upload APK if present
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: |
+            **/*.apk
+            **/buildozer.spec
+          retention-days: 14
+          if-no-files-found: ignore
