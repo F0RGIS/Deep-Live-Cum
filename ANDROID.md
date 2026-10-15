@@ -1,45 +1,34 @@
 # Running Deep-Live-Cum on Android
 
-The app can be packaged as an APK using Qt's official `pyside6-android-deploy` tool.
+## Automated build (GitHub Actions)
 
-## Requirements
+The workflow `.github/workflows/build-android.yml`:
 
-- Linux host (or WSL) for the build
-- Android SDK + NDK (the deploy tool can download them)
-- Prebuilt PySide6 Android wheels (aarch64 recommended)
+1. Downloads the essential models (`inswapper_128_fp16.onnx` + buffalo_l pack) into `models/`.
+2. Downloads official PySide6 Android wheels.
+3. Runs `pyside6-android-deploy` to produce an APK.
+4. Uploads the APK as an artifact.
 
-Download the wheels from:
-https://download.qt.io/official_releases/QtForPython/
+Trigger it manually from the Actions tab, or it runs on pushes that touch `main.py` or `modules/`.
 
-Look for `PySide6-*-android_aarch64.whl` and the matching `shiboken6` wheel.
+## Model packaging
 
-## Build steps
+- Models are placed in `models/` before packaging so they can be included as app assets.
+- On first launch the app copies any bundled model into the writable app storage (`MODELS_DIR`).
+- If a model is missing or incomplete, it falls back to downloading from Hugging Face.
 
-1. Rename or use the provided `main.py` (required by the deploy tool).
-2. Run:
+Required for basic face swap:
+- `inswapper_128_fp16.onnx`
+- `buffalo_l/buffalo_l/*.onnx` (InsightFace detection pack)
 
-```bash
-pyside6-android-deploy \
-  --name "DeepLiveCum" \
-  --wheel-pyside=/path/to/PySide6-*-android_aarch64.whl \
-  --wheel-shiboken=/path/to/shiboken6-*-android_aarch64.whl \
-  --ndk-path=/path/to/android-ndk \
-  --sdk-path=/path/to/android-sdk
-```
+Optional enhancers (`gfpgan-1024.onnx`, GPEN models) are downloaded only if selected.
 
-3. The tool produces an APK. Install it with:
+## Manual build
 
-```bash
-adb install DeepLiveCum-*-arm64-v8a-debug.apk
-```
-
-## Notes
-
-- Camera permission is requested via Qt's `QCameraPermission` when the app is packaged.
-- OpenCV `VideoCapture(0)` is used on Android as the capture backend.
-- ONNX models are still downloaded on first run (same as desktop). Real-time performance on mobile is limited; CPU or NNAPI is used.
-- Large models (inswapper, GFPGAN) may exceed device storage or memory on low-end phones.
+See the previous instructions. The entry point is `main.py`. Camera permission is requested via Qt when the APK is packaged.
 
 ## Limitations
 
-This is experimental. Expect lower FPS than desktop CUDA, and some features (GPU providers, certain enhancers) may not work out of the box on Android.
+- Real-time FPS on mobile is much lower than desktop CUDA.
+- Large models increase APK size significantly.
+- OpenCV camera access on Android is basic; permission must be granted.
