@@ -30,10 +30,8 @@ jobs:
       - name: Download essential models
         run: |
           mkdir -p models
-          # Face swapper (fp16 is smaller and works on CPU)
           curl -L -o models/inswapper_128_fp16.onnx \
             "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
-          # InsightFace buffalo_l pack (required for detection)
           mkdir -p models/buffalo_l/buffalo_l
           for f in 1k3d68.onnx 2d106det.onnx det_10g.onnx genderage.onnx w600k_r50.onnx; do
             curl -L -o "models/buffalo_l/buffalo_l/$f" \
@@ -44,32 +42,26 @@ jobs:
       - name: Download PySide6 Android wheels
         run: |
           mkdir -p wheels
-          # Official CI snapshots that contain android_aarch64 wheels
-          BASE="https://download.qt.io/snapshots/ci/pyside"
-          # Try a few recent known locations
-          for ver in 6.8.3 6.9.2; do
-            wget -q -O wheels/pyside.whl "$BASE/$ver/"*"/pyside6/PySide6-$ver-$ver-cp311-cp311-android_aarch64.whl" && break || true
-          done
-          for ver in 6.8.3 6.9.2; do
-            wget -q -O wheels/shiboken.whl "$BASE/$ver/"*"/pyside6/shiboken6-$ver-$ver-cp311-cp311-android_aarch64.whl" && break || true
-          done
-          ls -lh wheels/ || echo "Wheels download failed — will fall back to instructions"
+          wget -O wheels/pyside.whl \
+            "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-6.8.3-cp311-cp311-android_aarch64.whl"
+          wget -O wheels/shiboken.whl \
+            "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.8.3-6.8.3-cp311-cp311-android_aarch64.whl"
+          ls -lh wheels/
 
       - name: Build APK with pyside6-android-deploy
         run: |
           if [ -s wheels/pyside.whl ] && [ -s wheels/shiboken.whl ]; then
-            # Models are already in ./models so the deploy tool can pick them up
-            # if the project includes them as data. The tool creates a buildozer.spec.
             pyside6-android-deploy \
               --name DeepLiveCum \
               --wheel-pyside=wheels/pyside.whl \
               --wheel-shiboken=wheels/shiboken.whl \
               --keep-deployment-files || echo "Deploy finished with warnings"
           else
-            echo "::warning::PySide6 Android wheels not available. See ANDROID.md for manual build."
+            echo "::warning::PySide6 Android wheels not available."
+            exit 1
           fi
 
-      - name: Upload APK and models info
+      - name: Upload APK and models
         if: always()
         uses: actions/upload-artifact@v4
         with:
