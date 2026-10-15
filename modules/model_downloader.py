@@ -1,5 +1,7 @@
 import os
+import shutil
 import ssl
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -32,13 +34,40 @@ _LOCKS_GUARD = threading.Lock()
 CHUNK_SIZE = 1024 * 256
 
 
-def _ssl_context() -> ssl.SSLContext:
-    """TLS context for model downloads.
+def _is_android() -> bool:
+    return sys.platform == "android" or "android" in sys.platform.lower()
 
-    Always verifies certificates against the certifi CA bundle, on every
-    platform. Previously macOS used an unverified context, which let a
-    network-position attacker substitute model files in transit (#1890).
-    """
+
+def _bundled_models_dir() -> Optional[str]:
+    """Location of models packed into the APK (assets or next to the binary)."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "models"),
+        "/android_asset/models",
+    ]
+    for c in candidates:
+        if os.path.isdir(c):
+            return os.path.abspath(c)
+    return None
+
+
+def _extract_bundled(name: str, target: str) -> bool:
+    """Copy a model from the APK bundle into the writable MODELS_DIR if present."""
+    bundled = _bundled_models_dir()
+    if not bundled:
+        return False
+    src = os.path.join(bundled, *name.replace("/", os.sep).split(os.sep))
+    if not os.path.isfile(src):
+        return False
+    os.makedirs(os.path.dirname(target) or MODELS_DIR, exist_ok=True)
+    try:
+        shutil.copy2(src, target)
+        return True
+    except OSError:
+        return False
+
+
+def _ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
 
@@ -145,8 +174,11 @@ def ensure_model(
     with _lock_for(target):
         if is_present(name, dest_dir):
             return target
+        # Try bundled assets first (Android APK)
+        if _extract_bundled(name, target) and is_present(name, dest_dir):
+            return target
         if not quiet:
-            print(f"[DLC.MODELS] {name} not found in models folder, downloading...")
+            print(f"[DLC.MODELS] {name} not found, downloading...")
         if _download(name, resolve_url(name), target, expected_size(name)):
             return target
     return None
